@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 
 // --- TYPES AND CONSTANTS ---
@@ -17,6 +17,7 @@ interface Tile {
 
 type Grid = Tile[][];
 type Coords = { r: number; c: number };
+type ScoreEntry = { initials: string; score: number; gridSize: number; isWrapping: boolean; };
 
 const DIRECTIONS = {
     N: { r: -1, c: 0, from: 'S', mask: 1 },
@@ -199,6 +200,39 @@ const generateGrid = (size: number, isWrapping: boolean): [Grid, number[][], Coo
         }
     }
 
+    // 1.5. Add extra connections to create cycles and more complex tiles (T-junctions, crosses)
+    const extraConnections = Math.floor(size * size * 0.4); // Increased density
+    for (let i = 0; i < extraConnections; i++) {
+        const r = Math.floor(Math.random() * size);
+        const c = Math.floor(Math.random() * size);
+
+        const potentialDirections = [];
+        for (const key in DIRECTIONS) {
+            const dir = DIRECTIONS[key as keyof typeof DIRECTIONS];
+            // Check if connection doesn't already exist
+            if ((connections[r][c] & dir.mask) === 0) {
+                potentialDirections.push(dir);
+            }
+        }
+        
+        if (potentialDirections.length > 0) {
+            const dir = potentialDirections[Math.floor(Math.random() * potentialDirections.length)];
+            let nr = r + dir.r;
+            let nc = c + dir.c;
+
+            if (isWrapping) {
+                nr = (nr + size) % size;
+                nc = (nc + size) % size;
+            }
+
+            // Add connection if neighbor is within bounds (for non-wrapping)
+            if (isWrapping || (nr >= 0 && nr < size && nc >= 0 && nc < size)) {
+                 connections[r][c] |= dir.mask;
+                 connections[nr][nc] |= DIRECTIONS[dir.from as keyof typeof DIRECTIONS].mask;
+            }
+        }
+    }
+
     // 2. Determine tile types based on the connections, and identify terminals
     const terminals: Coords[] = [];
     const solvedGrid: Omit<Tile, 'connected' | 'isServer'>[][] = connections.map((row, r) => row.map((conn, c) => {
@@ -303,16 +337,57 @@ const App = () => {
     const [serverCoords, setServerCoords] = useState<Coords>({ r: 0, c: 0 });
     const [terminals, setTerminals] = useState<Coords[]>([]);
     const [isWon, setIsWon] = useState(false);
-    const [audioContext, setAudioContext] = useState<AudioContext | null>(null);
+    const audioContextRef = useRef<AudioContext | null>(null);
     const [hintedTile, setHintedTile] = useState<Coords | null>(null);
     const [focusedTile, setFocusedTile] = useState<Coords | null>({ r: 0, c: 0 });
     const [distanceMap, setDistanceMap] = useState<number[][]>([]);
+    const [score, setScore] = useState(0);
+    const [finalScoreInfo, setFinalScoreInfo] = useState<{ score: number; bonus: number } | null>(null);
+    const startTimeRef = useRef<number>(0);
 
+    const [leaderboard, setLeaderboard] = useState<ScoreEntry[]>([]);
+    const [showLeaderboard, setShowLeaderboard] = useState(false);
+    const [isHighScore, setIsHighScore] = useState(false);
+    const [playerInitials, setPlayerInitials] = useState("");
+
+    // Load leaderboard from local storage on initial render
+    useEffect(() => {
+        try {
+            const savedScores = localStorage.getItem('netwalkLeaderboard');
+            if (savedScores) {
+                setLeaderboard(JSON.parse(savedScores));
+            }
+        } catch (error) {
+            console.error("Failed to load leaderboard from localStorage:", error);
+        }
+    }, []);
+
+    const getAndResumeAudioContext = useCallback(() => {
+        if (!audioContextRef.current) {
+            try {
+                audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+            } catch (e) {
+                console.error("Web Audio API is not supported in this browser");
+                return null;
+            }
+        }
+        
+        if (audioContextRef.current.state === 'suspended') {
+            audioContextRef.current.resume().catch(e => console.error("Audio context resume failed:", e));
+        }
+        
+        return audioContextRef.current;
+    }, []);
 
     const startNewGame = useCallback(() => {
         setIsWon(false);
         setDistanceMap([]);
         setFocusedTile({ r: Math.floor(gridSize/2), c: Math.floor(gridSize/2) });
+        setScore(gridSize * gridSize * 100);
+        setFinalScoreInfo(null);
+        setIsHighScore(false);
+        setPlayerInitials("");
+        startTimeRef.current = Date.now();
         const [newGrid, newSolution, newServerCoords, newTerminals] = generateGrid(gridSize, isWrapping);
         setServerCoords(newServerCoords);
         setTerminals(newTerminals);
@@ -329,15 +404,9 @@ const App = () => {
         const tile = grid[r]?.[c];
         if (!tile || isWon || tile.isServer) return;
 
-        let currentAudioContext = audioContext;
-        if (!currentAudioContext) {
-            try {
-                currentAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-                setAudioContext(currentAudioContext);
-            } catch (e) {
-                console.error("Web Audio API is not supported in this browser");
-            }
-        }
+        setScore(prev => prev - 10);
+
+        const currentAudioContext = getAndResumeAudioContext();
 
         const previouslyConnectedCount = grid.flat().filter(t => t.connected).length;
 
@@ -355,20 +424,91 @@ const App = () => {
         }
         
         setGrid(updatedGridWithConnectivity);
-    }, [grid, isWon, audioContext, serverCoords, isWrapping]);
+    }, [grid, isWon, serverCoords, isWrapping, getAndResumeAudioContext]);
 
     // Check for win condition whenever the grid changes
     useEffect(() => {
-        if (isWon || grid.length === 0 || terminals.length === 0) return;
+        if (isWon || grid.length === 0) return;
 
-        const allTerminalsConnected = terminals.every(
-            (t) => grid[t.r][t.c].connected
-        );
+        const isWinConditionMet = () => {
+            const size = grid.length;
+            
+            // Condition 1: All required tiles must be connected.
+            // If terminals exist, all must be connected. If not, every tile must be.
+            const allRequiredTilesConnected = terminals.length > 0
+                ? terminals.every(t => grid[t.r]?.[t.c]?.connected)
+                : grid.flat().every(t => t.connected);
 
-        if (allTerminalsConnected) {
+            if (!allRequiredTilesConnected) {
+                return false;
+            }
+
+            // Condition 2: The connected network must have zero "leaks".
+            // A leak is a connection on a powered tile that points to a non-powered
+            // tile, a misaligned tile, or off the board.
+            for (let r = 0; r < size; r++) {
+                for (let c = 0; c < size; c++) {
+                    const tile = grid[r][c];
+
+                    // Only check for leaks from powered tiles.
+                    if (!tile.connected) continue;
+
+                    const connections = TILE_CONNECTIONS[tile.type][tile.rotation];
+
+                    for (const key in DIRECTIONS) {
+                        const dir = DIRECTIONS[key as keyof typeof DIRECTIONS];
+
+                        // If this tile has a connection pointing in a direction...
+                        if ((connections & dir.mask) !== 0) {
+                            let nr = r + dir.r;
+                            let nc = c + dir.c;
+
+                            // Case 1: Leak off the edge in non-wrapping mode
+                            if (!isWrapping && (nr < 0 || nr >= size || nc < 0 || nc >= size)) {
+                                return false; // Leak found.
+                            }
+
+                            if (isWrapping) {
+                                nr = (nr + size) % size;
+                                nc = (nc + size) % size;
+                            }
+                            
+                            const neighbor = grid[nr][nc];
+                            
+                            // Case 2: Leak to an unpowered tile.
+                            if (!neighbor.connected) {
+                                return false; // Leak found.
+                            }
+
+                            // Case 3: Leak to a powered tile that isn't pointing back.
+                            const neighborConnections = TILE_CONNECTIONS[neighbor.type][neighbor.rotation];
+                            const fromMask = DIRECTIONS[dir.from as keyof typeof DIRECTIONS].mask;
+                            if ((neighborConnections & fromMask) === 0) {
+                                return false; // Leak found.
+                            }
+                        }
+                    }
+                }
+            }
+            
+            return true; // All checks passed.
+        };
+
+
+        if (isWinConditionMet()) {
+            const endTime = Date.now();
+            const duration = (endTime - startTimeRef.current) / 1000;
+            const parTime = gridSize * gridSize * 2; // 2 seconds per tile "par" time
+            const timeBonus = Math.max(0, Math.floor((parTime - duration) * 10)); // 10 points per second under par
+            const final = score + timeBonus;
+            setFinalScoreInfo({ score: final, bonus: timeBonus });
+
+            const isTopTen = leaderboard.length < 10 || final > leaderboard[leaderboard.length - 1].score;
+            setIsHighScore(isTopTen);
+
             setIsWon(true);
-            if (audioContext) {
-                playWinSound(audioContext);
+            if (audioContextRef.current) {
+                playWinSound(audioContextRef.current);
             }
             
             // Calculate distance map for win animation cascade
@@ -409,17 +549,41 @@ const App = () => {
             }
             setDistanceMap(newDistanceMap);
         }
-    }, [grid, terminals, isWon, audioContext, serverCoords, isWrapping]);
+    }, [grid, terminals, isWon, serverCoords, isWrapping, score, gridSize, leaderboard]);
 
     const handleTileClick = (r: number, c: number) => {
         setFocusedTile({ r, c });
         rotateTile(r, c);
     };
 
+    const handleInitialsSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!playerInitials.trim() || !finalScoreInfo) return;
+
+        const newScore: ScoreEntry = {
+            initials: playerInitials.trim().toUpperCase(),
+            score: finalScoreInfo.score,
+            gridSize: gridSize,
+            isWrapping: isWrapping,
+        };
+
+        const newLeaderboard = [...leaderboard, newScore]
+            .sort((a, b) => b.score - a.score)
+            .slice(0, 10);
+
+        setLeaderboard(newLeaderboard);
+        try {
+            localStorage.setItem('netwalkLeaderboard', JSON.stringify(newLeaderboard));
+        } catch (error) {
+            console.error("Failed to save leaderboard to localStorage:", error);
+        }
+        setIsHighScore(false); // Hide the form after submission
+    };
+
     // Keyboard navigation
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            if (!focusedTile) return;
+            if (!focusedTile || isWon) return;
 
             let { r, c } = focusedTile;
 
@@ -450,20 +614,16 @@ const App = () => {
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [focusedTile, gridSize, isWrapping, rotateTile]);
+    }, [focusedTile, gridSize, isWrapping, rotateTile, isWon]);
 
 
     const handleHintClick = () => {
         if (isWon) return;
+        
+        setScore(prev => prev - 250);
 
-        let currentAudioContext = audioContext;
-        if (!currentAudioContext) {
-            try {
-                currentAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-                setAudioContext(currentAudioContext);
-            } catch (e) { console.error("Web Audio API is not supported in this browser"); }
-        }
-
+        const currentAudioContext = getAndResumeAudioContext();
+       
         const incorrectTiles: Coords[] = [];
         for (let r = 0; r < gridSize; r++) {
             for (let c = 0; c < gridSize; c++) {
@@ -502,7 +662,6 @@ const App = () => {
                     let nc = c + dir.c;
                     if (isWrapping) {
                         nr = (nr + gridSize) % gridSize;
-                        // FIX: Corrected typo 'size' to 'gridSize'
                         nc = (nc + gridSize) % gridSize;
                     }
                     if ((isWrapping || (nr >= 0 && nr < gridSize && nc >= 0 && nc < gridSize)) && grid[nr][nc].connected) {
@@ -537,9 +696,11 @@ const App = () => {
         <div className="app-container">
             <header className="header">
                 <h1 className="title">Netwalk</h1>
+                <div className="score-display">Score: {score}</div>
             </header>
             <div className="controls">
                 <button className="control-button" onClick={startNewGame}>New Game</button>
+                <button className="control-button" onClick={() => setShowLeaderboard(true)}>Leaderboard</button>
                 <button className="control-button" onClick={handleHintClick} disabled={isWon}>Hint</button>
                 <select 
                     className="control-select"
@@ -575,7 +736,7 @@ const App = () => {
                                 className={`tile ${tile.isServer ? 'fixed' : ''} ${hintedTile && hintedTile.r === r && hintedTile.c === c ? 'hinted' : ''} ${focusedTile && focusedTile.r === r && focusedTile.c === c ? 'focused' : ''}`}
                                 onClick={() => handleTileClick(r, c)}
                                 role="button"
-                                tabIndex={0}
+                                tabIndex={isWon ? -1 : 0}
                                 aria-label={`Tile at row ${r+1}, column ${c+1}. Type: ${TileType[tile.type]}. Press to rotate.`}
                                 style={isWon && distanceMap[r]?.[c] > -1 ? { '--animation-delay': `${distanceMap[r][c] * 50}ms` } as React.CSSProperties : undefined}
                             >
@@ -595,9 +756,61 @@ const App = () => {
                     )}
                 </div>
                 <div className={`win-message ${isWon ? 'visible' : ''}`}>
-                    <p>System Connected!</p>
+                    <p className="win-title">System Connected!</p>
+                    {finalScoreInfo && (
+                        isHighScore ? (
+                            <form className="highscore-form" onSubmit={handleInitialsSubmit}>
+                                <p className="highscore-prompt">New High Score!</p>
+                                <label htmlFor="initials-input" className="sr-only">Enter your initials</label>
+                                <input
+                                    id="initials-input"
+                                    type="text"
+                                    className="highscore-input"
+                                    value={playerInitials}
+                                    onChange={(e) => setPlayerInitials(e.target.value)}
+                                    maxLength={3}
+                                    placeholder="AAA"
+                                    required
+                                    autoFocus
+                                />
+                                <button type="submit" className="highscore-submit-button">Save Score</button>
+                            </form>
+                        ) : (
+                            <>
+                                <p className="final-score">Final Score: {finalScoreInfo.score}</p>
+                                {finalScoreInfo.bonus > 0 && (
+                                    <p className="score-breakdown">(Time Bonus: +{finalScoreInfo.bonus})</p>
+                                )}
+                            </>
+                        )
+                    )}
                 </div>
             </div>
+
+            {showLeaderboard && (
+                <div className="leaderboard-overlay" onClick={() => setShowLeaderboard(false)}>
+                    <div className="leaderboard-modal" onClick={(e) => e.stopPropagation()}>
+                        <h2 className="leaderboard-title">Top 10 Scores</h2>
+                        {leaderboard.length > 0 ? (
+                            <ol className="leaderboard-list">
+                                {leaderboard.map((entry, index) => (
+                                    <li key={index} className="leaderboard-item">
+                                        <span className="leaderboard-rank">{index + 1}.</span>
+                                        <span className="leaderboard-initials">{entry.initials}</span>
+                                        <span className="leaderboard-map">
+                                            {entry.gridSize ? `${entry.gridSize}x${entry.gridSize}${entry.isWrapping ? ' Wrap' : ''}` : '-'}
+                                        </span>
+                                        <span className="leaderboard-score">{entry.score}</span>
+                                    </li>
+                                ))}
+                            </ol>
+                        ) : (
+                            <p className="leaderboard-empty">No scores yet. Be the first!</p>
+                        )}
+                        <button className="control-button leaderboard-close" onClick={() => setShowLeaderboard(false)}>Close</button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
