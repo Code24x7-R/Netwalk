@@ -98,108 +98,156 @@ const TileIcon = ({ type, connected, isServer }: { type: TileType, connected: bo
 const startBackgroundMusic = (audioCtx: AudioContext): { gainNode: GainNode; stop: () => void; } => {
     const musicGain = audioCtx.createGain();
     musicGain.gain.setValueAtTime(0, audioCtx.currentTime);
-    musicGain.gain.linearRampToValueAtTime(0.15, audioCtx.currentTime + 1); // Fade in to a louder volume
+    musicGain.gain.linearRampToValueAtTime(0.15, audioCtx.currentTime + 1);
     musicGain.connect(audioCtx.destination);
 
     const filter = audioCtx.createBiquadFilter();
     filter.type = 'lowpass';
-    filter.frequency.setValueAtTime(350, audioCtx.currentTime);
+    filter.frequency.setValueAtTime(400, audioCtx.currentTime);
     filter.Q.setValueAtTime(1.5, audioCtx.currentTime);
     filter.connect(musicGain);
-
-    // Lofi-inspired chord progression: Fmaj7 - Em7 - Dm7 - G7
-    const F2 = 87.31, C3 = 130.81;
-    const E2 = 82.41, B2 = 123.47;
-    const D2 = 73.42, A2 = 110.00;
-    const G2 = 98.00;
 
     const bpm = 90;
     const sixteenthNoteTime = (60 / bpm) / 4;
 
-    // Sequence of notes: { freq, duration (in 16ths), velocity }
-    // A null freq represents a rest.
-    const sequence = [
-        // Fmaj7
-        { freq: F2, duration: 3, velocity: 0.9 },
-        { freq: C3, duration: 1, velocity: 0.6 },
-        { freq: F2, duration: 2, velocity: 0.8 },
-        { freq: null, duration: 2, velocity: 0 },
-        { freq: F2, duration: 2, velocity: 0.8 },
-        { freq: C3, duration: 2, velocity: 0.7 },
-        { freq: F2, duration: 4, velocity: 0.9 },
-
-        // Em7
-        { freq: E2, duration: 3, velocity: 0.9 },
-        { freq: B2, duration: 1, velocity: 0.6 },
-        { freq: E2, duration: 2, velocity: 0.8 },
-        { freq: null, duration: 2, velocity: 0 },
-        { freq: E2, duration: 2, velocity: 0.8 },
-        { freq: B2, duration: 2, velocity: 0.7 },
-        { freq: E2, duration: 4, velocity: 0.9 },
-        
-        // Dm7
-        { freq: D2, duration: 3, velocity: 0.9 },
-        { freq: A2, duration: 1, velocity: 0.6 },
-        { freq: D2, duration: 2, velocity: 0.8 },
-        { freq: null, duration: 2, velocity: 0 },
-        { freq: D2, duration: 2, velocity: 0.8 },
-        { freq: A2, duration: 2, velocity: 0.7 },
-        { freq: D2, duration: 4, velocity: 0.9 },
-
-        // G7
-        { freq: G2, duration: 3, velocity: 0.9 },
-        { freq: D2, duration: 1, velocity: 0.6 },
-        { freq: G2, duration: 2, velocity: 0.8 },
-        { freq: G2, duration: 2, velocity: 0.7 },
-        { freq: D2, duration: 4, velocity: 0.8 },
-        { freq: G2, duration: 4, velocity: 0.9 },
+    // --- BASS SYNTH & SEQUENCER ---
+    const bassSequence = [
+        { freq: 87.31, duration: 3, velocity: 0.9 }, { freq: 130.81, duration: 1, velocity: 0.6 }, { freq: 87.31, duration: 2, velocity: 0.8 }, { freq: null, duration: 2, velocity: 0 }, { freq: 87.31, duration: 2, velocity: 0.8 }, { freq: 130.81, duration: 2, velocity: 0.7 }, { freq: 87.31, duration: 4, velocity: 0.9 },
+        { freq: 82.41, duration: 3, velocity: 0.9 }, { freq: 123.47, duration: 1, velocity: 0.6 }, { freq: 82.41, duration: 2, velocity: 0.8 }, { freq: null, duration: 2, velocity: 0 }, { freq: 82.41, duration: 2, velocity: 0.8 }, { freq: 123.47, duration: 2, velocity: 0.7 }, { freq: 82.41, duration: 4, velocity: 0.9 },
+        { freq: 73.42, duration: 3, velocity: 0.9 }, { freq: 110.00, duration: 1, velocity: 0.6 }, { freq: 73.42, duration: 2, velocity: 0.8 }, { freq: null, duration: 2, velocity: 0 }, { freq: 73.42, duration: 2, velocity: 0.8 }, { freq: 110.00, duration: 2, velocity: 0.7 }, { freq: 73.42, duration: 4, velocity: 0.9 },
+        { freq: 98.00, duration: 3, velocity: 0.9 }, { freq: 73.42, duration: 1, velocity: 0.6 }, { freq: 98.00, duration: 2, velocity: 0.8 }, { freq: 98.00, duration: 2, velocity: 0.7 }, { freq: 73.42, duration: 4, velocity: 0.8 }, { freq: 98.00, duration: 4, velocity: 0.9 },
     ];
-    
     let noteIndex = 0;
     let nextNoteTime = audioCtx.currentTime;
-    let timerId: number;
+    let bassTimerId: number;
 
     const scheduleNotes = () => {
-        while (nextNoteTime < audioCtx.currentTime + 0.2) { // Look ahead 200ms
-            const { freq, duration, velocity } = sequence[noteIndex % sequence.length];
+        while (nextNoteTime < audioCtx.currentTime + 0.2) {
+            const { freq, duration, velocity } = bassSequence[noteIndex % bassSequence.length];
             const noteDuration = duration * sixteenthNoteTime;
-
             if (freq) {
                 const osc = audioCtx.createOscillator();
                 const noteGain = audioCtx.createGain();
-                
                 osc.connect(noteGain);
                 noteGain.connect(filter);
-
-                osc.type = 'triangle'; // Smoother than sawtooth for bass
+                osc.type = 'triangle';
                 osc.frequency.setValueAtTime(freq, nextNoteTime);
-                
-                // Note envelope (ADSR-like)
                 noteGain.gain.setValueAtTime(0, nextNoteTime);
-                // Attack
                 noteGain.gain.linearRampToValueAtTime(velocity, nextNoteTime + 0.02);
-                // Decay and Sustain
                 noteGain.gain.setTargetAtTime(velocity * 0.7, nextNoteTime + 0.02, 0.1);
-                // Release
                 noteGain.gain.linearRampToValueAtTime(0, nextNoteTime + noteDuration - 0.01);
-                
                 osc.start(nextNoteTime);
                 osc.stop(nextNoteTime + noteDuration);
             }
-
             nextNoteTime += noteDuration;
             noteIndex++;
         }
-        timerId = window.setTimeout(scheduleNotes, 50);
+        bassTimerId = window.setTimeout(scheduleNotes, 50);
     };
 
+    // --- DRUM MACHINE ---
+    const drumBus = audioCtx.createGain();
+    drumBus.gain.setValueAtTime(1.5, audioCtx.currentTime);
+    drumBus.connect(filter);
+    
+    const noiseBuffer = audioCtx.createBuffer(1, audioCtx.sampleRate * 1, audioCtx.sampleRate);
+    const output = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < noiseBuffer.length; i++) { output[i] = Math.random() * 2 - 1; }
+
+    const createKick = (time: number) => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(drumBus);
+        osc.frequency.setValueAtTime(150, time);
+        osc.frequency.exponentialRampToValueAtTime(0.01, time + 0.1);
+        gain.gain.setValueAtTime(1, time);
+        gain.gain.exponentialRampToValueAtTime(0.01, time + 0.4);
+        osc.start(time);
+        osc.stop(time + 0.4);
+    };
+
+    const createSnare = (time: number) => {
+        const noise = audioCtx.createBufferSource();
+        noise.buffer = noiseBuffer;
+        const noiseFilter = audioCtx.createBiquadFilter();
+        noiseFilter.type = 'highpass';
+        noiseFilter.frequency.value = 1500;
+        const noiseGain = audioCtx.createGain();
+        noise.connect(noiseFilter);
+        noiseFilter.connect(noiseGain);
+        noiseGain.connect(drumBus);
+        noiseGain.gain.setValueAtTime(0.4, time);
+        noiseGain.gain.exponentialRampToValueAtTime(0.01, time + 0.2);
+        noise.start(time);
+
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(180, time);
+        osc.connect(gain);
+        gain.connect(drumBus);
+        gain.gain.setValueAtTime(0.5, time);
+        gain.gain.exponentialRampToValueAtTime(0.01, time + 0.1);
+        osc.start(time);
+        osc.stop(time + 0.1);
+    };
+    
+    const createHiHat = (time: number, velocity: number) => {
+        const noise = audioCtx.createBufferSource();
+        noise.buffer = noiseBuffer;
+        const noiseFilter = audioCtx.createBiquadFilter();
+        noiseFilter.type = 'highpass';
+        noiseFilter.frequency.value = 10000;
+        const noiseGain = audioCtx.createGain();
+        noise.connect(noiseFilter);
+        noiseFilter.connect(noiseGain);
+        noiseGain.connect(drumBus);
+        noiseGain.gain.setValueAtTime(velocity * 0.25, time);
+        noiseGain.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
+        noise.start(time);
+    };
+
+    const drumPattern = [
+        { k: 1, s: 0, h: 0.8 }, { k: 0, s: 0, h: 0.3 }, { k: 0, s: 0, h: 0.6 }, { k: 0, s: 0, h: 0.3 },
+        { k: 0, s: 1, h: 0.8 }, { k: 0, s: 0, h: 0.3 }, { k: 1, s: 0, h: 0.6 }, { k: 0, s: 0, h: 0.3 },
+        { k: 1, s: 0, h: 0.8 }, { k: 0, s: 0, h: 0.3 }, { k: 0, s: 0, h: 0.6 }, { k: 0, s: 0, h: 0.3 },
+        { k: 0, s: 1, h: 0.8 }, { k: 0, s: 0, h: 0.3 }, { k: 0, s: 0, h: 0.6 }, { k: 1, s: 0, h: 0.3 },
+        { k: 1, s: 0, h: 0.8 }, { k: 0, s: 0, h: 0.3 }, { k: 0, s: 0, h: 0.6 }, { k: 0, s: 0, h: 0.3 },
+        { k: 0, s: 1, h: 0.8 }, { k: 0, s: 0, h: 0.3 }, { k: 0, s: 0, h: 0.6 }, { k: 0, s: 0, h: 0.3 },
+        { k: 1, s: 0, h: 0.8 }, { k: 0, s: 0, h: 0.3 }, { k: 0, s: 0, h: 0.6 }, { k: 1, s: 0, h: 0.3 },
+        { k: 0, s: 1, h: 0.8 }, { k: 0, s: 0, h: 0.3 }, { k: 0, s: 0, h: 0.6 }, { k: 0, s: 0, h: 0.3 },
+    ];
+    let drumStep = 0;
+    let nextDrumHitTime = audioCtx.currentTime;
+    let drumTimerId: number;
+
+    const scheduleDrums = () => {
+        while (nextDrumHitTime < audioCtx.currentTime + 0.2) {
+            const stepData = drumPattern[drumStep % drumPattern.length];
+            const swing = (drumStep % 2 !== 0) ? sixteenthNoteTime * 0.33 : 0;
+            const scheduledTime = nextDrumHitTime + swing;
+
+            if (stepData.k) createKick(scheduledTime);
+            if (stepData.s) createSnare(scheduledTime);
+            if (stepData.h) createHiHat(scheduledTime, stepData.h);
+
+            nextDrumHitTime += sixteenthNoteTime;
+            drumStep++;
+        }
+        drumTimerId = window.setTimeout(scheduleDrums, 50);
+    };
+
+    // --- START & STOP ---
     scheduleNotes();
+    scheduleDrums();
     
     const stop = () => {
-        clearTimeout(timerId);
+        clearTimeout(bassTimerId);
+        clearTimeout(drumTimerId);
         const now = audioCtx.currentTime;
         musicGain.gain.cancelScheduledValues(now);
-        musicGain.gain.setTargetAtTime(0, now, 0.5); // Fade out master gain
+        musicGain.gain.setTargetAtTime(0, now, 0.5);
     };
 
     return { gainNode: musicGain, stop };
