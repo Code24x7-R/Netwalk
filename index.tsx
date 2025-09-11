@@ -97,51 +97,109 @@ const TileIcon = ({ type, connected, isServer }: { type: TileType, connected: bo
 
 const startBackgroundMusic = (audioCtx: AudioContext): { gainNode: GainNode; stop: () => void; } => {
     const musicGain = audioCtx.createGain();
-    musicGain.gain.setValueAtTime(0, audioCtx.currentTime); // Start silent
-    musicGain.gain.linearRampToValueAtTime(0.08, audioCtx.currentTime + 1); // Fade in
+    musicGain.gain.setValueAtTime(0, audioCtx.currentTime);
+    musicGain.gain.linearRampToValueAtTime(0.15, audioCtx.currentTime + 1); // Fade in to a louder volume
     musicGain.connect(audioCtx.destination);
 
-    const osc = audioCtx.createOscillator();
     const filter = audioCtx.createBiquadFilter();
-
-    osc.type = 'sawtooth';
     filter.type = 'lowpass';
-    filter.frequency.setValueAtTime(400, audioCtx.currentTime);
-    filter.Q.setValueAtTime(2, audioCtx.currentTime);
-
-    osc.connect(filter);
+    filter.frequency.setValueAtTime(350, audioCtx.currentTime);
+    filter.Q.setValueAtTime(1.5, audioCtx.currentTime);
     filter.connect(musicGain);
 
-    const notes = [110.00, 130.81, 146.83, 110.00, 164.81, 130.81, 110.00, 98.00]; // A2, C3, D3, A2, E3, C3, A2, G2
+    // Lofi-inspired chord progression: Fmaj7 - Em7 - Dm7 - G7
+    const F2 = 87.31, C3 = 130.81;
+    const E2 = 82.41, B2 = 123.47;
+    const D2 = 73.42, A2 = 110.00;
+    const G2 = 98.00;
+
+    const bpm = 78;
+    const sixteenthNoteTime = (60 / bpm) / 4;
+
+    // Sequence of notes: { freq, duration (in 16ths), velocity }
+    // A null freq represents a rest.
+    const sequence = [
+        // Fmaj7
+        { freq: F2, duration: 3, velocity: 0.9 },
+        { freq: C3, duration: 1, velocity: 0.6 },
+        { freq: F2, duration: 2, velocity: 0.8 },
+        { freq: null, duration: 2, velocity: 0 },
+        { freq: F2, duration: 2, velocity: 0.8 },
+        { freq: C3, duration: 2, velocity: 0.7 },
+        { freq: F2, duration: 4, velocity: 0.9 },
+
+        // Em7
+        { freq: E2, duration: 3, velocity: 0.9 },
+        { freq: B2, duration: 1, velocity: 0.6 },
+        { freq: E2, duration: 2, velocity: 0.8 },
+        { freq: null, duration: 2, velocity: 0 },
+        { freq: E2, duration: 2, velocity: 0.8 },
+        { freq: B2, duration: 2, velocity: 0.7 },
+        { freq: E2, duration: 4, velocity: 0.9 },
+        
+        // Dm7
+        { freq: D2, duration: 3, velocity: 0.9 },
+        { freq: A2, duration: 1, velocity: 0.6 },
+        { freq: D2, duration: 2, velocity: 0.8 },
+        { freq: null, duration: 2, velocity: 0 },
+        { freq: D2, duration: 2, velocity: 0.8 },
+        { freq: A2, duration: 2, velocity: 0.7 },
+        { freq: D2, duration: 4, velocity: 0.9 },
+
+        // G7
+        { freq: G2, duration: 3, velocity: 0.9 },
+        { freq: D2, duration: 1, velocity: 0.6 },
+        { freq: G2, duration: 2, velocity: 0.8 },
+        { freq: G2, duration: 2, velocity: 0.7 },
+        { freq: D2, duration: 4, velocity: 0.8 },
+        { freq: G2, duration: 4, velocity: 0.9 },
+    ];
+    
     let noteIndex = 0;
-    const noteDuration = 0.4;
     let nextNoteTime = audioCtx.currentTime;
     let timerId: number;
 
     const scheduleNotes = () => {
-        while (nextNoteTime < audioCtx.currentTime + 0.1) {
-            const freq = notes[noteIndex % notes.length];
-            osc.frequency.setValueAtTime(freq, nextNoteTime);
-            noteIndex++;
+        while (nextNoteTime < audioCtx.currentTime + 0.2) { // Look ahead 200ms
+            const { freq, duration, velocity } = sequence[noteIndex % sequence.length];
+            const noteDuration = duration * sixteenthNoteTime;
+
+            if (freq) {
+                const osc = audioCtx.createOscillator();
+                const noteGain = audioCtx.createGain();
+                
+                osc.connect(noteGain);
+                noteGain.connect(filter);
+
+                osc.type = 'triangle'; // Smoother than sawtooth for bass
+                osc.frequency.setValueAtTime(freq, nextNoteTime);
+                
+                // Note envelope (ADSR-like)
+                noteGain.gain.setValueAtTime(0, nextNoteTime);
+                // Attack
+                noteGain.gain.linearRampToValueAtTime(velocity, nextNoteTime + 0.02);
+                // Decay and Sustain
+                noteGain.gain.setTargetAtTime(velocity * 0.7, nextNoteTime + 0.02, 0.1);
+                // Release
+                noteGain.gain.linearRampToValueAtTime(0, nextNoteTime + noteDuration - 0.01);
+                
+                osc.start(nextNoteTime);
+                osc.stop(nextNoteTime + noteDuration);
+            }
+
             nextNoteTime += noteDuration;
+            noteIndex++;
         }
         timerId = window.setTimeout(scheduleNotes, 50);
     };
 
-    osc.start();
     scheduleNotes();
     
     const stop = () => {
         clearTimeout(timerId);
         const now = audioCtx.currentTime;
         musicGain.gain.cancelScheduledValues(now);
-        musicGain.gain.setTargetAtTime(0, now, 0.5); // Fade out
-        osc.stop(now + 0.6);
-        setTimeout(() => {
-            osc.disconnect();
-            musicGain.disconnect();
-            filter.disconnect();
-        }, 600);
+        musicGain.gain.setTargetAtTime(0, now, 0.5); // Fade out master gain
     };
 
     return { gainNode: musicGain, stop };
