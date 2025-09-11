@@ -35,7 +35,19 @@ const TILE_CONNECTIONS: Record<TileType, number[]> = {
 };
 
 
-// --- SVG TILE COMPONENT ---
+// --- SVG COMPONENTS ---
+
+const SpeakerOnIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M16.5 12A4.5 4.5 0 0 0 14 7.97v8.05a4.5 4.5 0 0 0 2.5-4.02zM5 9v6h4l5 5V4L9 9H5z" />
+    </svg>
+);
+
+const SpeakerOffIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M18.998 12.513c.481-1.002.724-2.09.724-3.234 0-4.01-2.61-7.31-6.222-8.525l-1.474 1.474c2.812.986 4.696 3.696 4.696 6.775 0 .613-.08 1.21-.23 1.776l1.506 1.506zM23 12c0 1.95-.55 3.78-1.52 5.38l-1.42-1.42C20.69 14.86 21 13.48 21 12c0-4.97-3.23-9.1-7.5-10.43v1.64c3.39.89 6 3.96 6 7.51zM4.27 3L3 4.27l6.01 6.01L5 15v-6H1v8h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v1.64c1.54-.31 2.94-1.03 4.14-2.02L19.73 21 21 19.73 4.27 3zM9 9.27L14.73 15H9V9.27z" />
+    </svg>
+);
 
 const TileIcon = ({ type, connected, isServer }: { type: TileType, connected: boolean, isServer: boolean }) => {
     const classNames = `wire ${connected ? 'connected' : ''}`;
@@ -82,6 +94,58 @@ const TileIcon = ({ type, connected, isServer }: { type: TileType, connected: bo
 };
 
 // --- AUDIO UTILITIES ---
+
+const startBackgroundMusic = (audioCtx: AudioContext): { gainNode: GainNode; stop: () => void; } => {
+    const musicGain = audioCtx.createGain();
+    musicGain.gain.setValueAtTime(0, audioCtx.currentTime); // Start silent
+    musicGain.gain.linearRampToValueAtTime(0.08, audioCtx.currentTime + 1); // Fade in
+    musicGain.connect(audioCtx.destination);
+
+    const osc = audioCtx.createOscillator();
+    const filter = audioCtx.createBiquadFilter();
+
+    osc.type = 'sawtooth';
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(400, audioCtx.currentTime);
+    filter.Q.setValueAtTime(2, audioCtx.currentTime);
+
+    osc.connect(filter);
+    filter.connect(musicGain);
+
+    const notes = [110.00, 130.81, 146.83, 110.00, 164.81, 130.81, 110.00, 98.00]; // A2, C3, D3, A2, E3, C3, A2, G2
+    let noteIndex = 0;
+    const noteDuration = 0.4;
+    let nextNoteTime = audioCtx.currentTime;
+    let timerId: number;
+
+    const scheduleNotes = () => {
+        while (nextNoteTime < audioCtx.currentTime + 0.1) {
+            const freq = notes[noteIndex % notes.length];
+            osc.frequency.setValueAtTime(freq, nextNoteTime);
+            noteIndex++;
+            nextNoteTime += noteDuration;
+        }
+        timerId = window.setTimeout(scheduleNotes, 50);
+    };
+
+    osc.start();
+    scheduleNotes();
+    
+    const stop = () => {
+        clearTimeout(timerId);
+        const now = audioCtx.currentTime;
+        musicGain.gain.cancelScheduledValues(now);
+        musicGain.gain.setTargetAtTime(0, now, 0.5); // Fade out
+        osc.stop(now + 0.6);
+        setTimeout(() => {
+            osc.disconnect();
+            musicGain.disconnect();
+            filter.disconnect();
+        }, 600);
+    };
+
+    return { gainNode: musicGain, stop };
+};
 
 const playConnectSound = (audioCtx: AudioContext, count: number) => {
     const osc = audioCtx.createOscillator();
@@ -373,6 +437,8 @@ const App = () => {
     const [score, setScore] = useState(0);
     const [finalScoreInfo, setFinalScoreInfo] = useState<{ score: number; bonus: number } | null>(null);
     const startTimeRef = useRef<number>(0);
+    const [isMuted, setIsMuted] = useState(true);
+    const musicNodesRef = useRef<{ gainNode: GainNode; stop: () => void; } | null>(null);
 
     const [leaderboard, setLeaderboard] = useState<ScoreEntry[]>([]);
     const [showLeaderboard, setShowLeaderboard] = useState(false);
@@ -392,9 +458,11 @@ const App = () => {
     }, []);
 
     const getAndResumeAudioContext = useCallback(() => {
+        let isNewContext = false;
         if (!audioContextRef.current) {
             try {
                 audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+                isNewContext = true;
             } catch (e) {
                 console.error("Web Audio API is not supported in this browser");
                 return null;
@@ -405,8 +473,43 @@ const App = () => {
             audioContextRef.current.resume().catch(e => console.error("Audio context resume failed:", e));
         }
         
+        // Auto-play music on first interaction if not muted
+        if ((isNewContext || audioContextRef.current.state === 'running') && !isMuted && !musicNodesRef.current) {
+            musicNodesRef.current = startBackgroundMusic(audioContextRef.current);
+        }
+
         return audioContextRef.current;
-    }, []);
+    }, [isMuted]);
+
+    // Effect to control music when mute state changes
+    useEffect(() => {
+        const audioCtx = audioContextRef.current;
+        if (isMuted) {
+            if (musicNodesRef.current) {
+                musicNodesRef.current.stop();
+                musicNodesRef.current = null;
+            }
+        } else {
+            // Only start music if context exists and is running
+            if (audioCtx && audioCtx.state === 'running' && !musicNodesRef.current) {
+                musicNodesRef.current = startBackgroundMusic(audioCtx);
+            }
+        }
+
+        // Cleanup on component unmount
+        return () => {
+            if (musicNodesRef.current) {
+                musicNodesRef.current.stop();
+                musicNodesRef.current = null;
+            }
+        };
+    }, [isMuted]);
+
+    const handleMuteToggle = () => {
+        // This ensures the audio context is active before we try to play/stop music
+        getAndResumeAudioContext();
+        setIsMuted(prev => !prev);
+    };
 
     const startNewGame = useCallback(() => {
         setIsWon(false);
@@ -540,8 +643,9 @@ const App = () => {
             setIsHighScore(isTopTen);
 
             setIsWon(true);
-            if (audioContextRef.current) {
-                playWinSound(audioContextRef.current);
+            const currentAudioContext = getAndResumeAudioContext();
+            if (currentAudioContext) {
+                playWinSound(currentAudioContext);
             }
             
             // Calculate distance map for win animation cascade
@@ -582,7 +686,7 @@ const App = () => {
             }
             setDistanceMap(newDistanceMap);
         }
-    }, [grid, terminals, isWon, serverCoords, isWrapping, score, gridSize, leaderboard]);
+    }, [grid, terminals, isWon, serverCoords, isWrapping, score, gridSize, leaderboard, getAndResumeAudioContext]);
 
     const handleTileClick = (r: number, c: number) => {
         setFocusedTile({ r, c });
@@ -734,6 +838,13 @@ const App = () => {
             <header className="header">
                 <h1 className="title">Netwalk</h1>
                 <div className="score-display">Score: {score}</div>
+                 <button 
+                    className="mute-button" 
+                    onClick={handleMuteToggle}
+                    aria-label={isMuted ? "Unmute music" : "Mute music"}
+                >
+                    {isMuted ? <SpeakerOffIcon /> : <SpeakerOnIcon />}
+                </button>
             </header>
             <div className="controls">
                 <button className="control-button" onClick={startNewGame}>New Game</button>

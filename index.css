@@ -59,6 +59,35 @@ body {
 
 .header {
     text-align: center;
+    position: relative;
+    width: 100%;
+}
+
+.mute-button {
+    position: absolute;
+    top: 50%;
+    right: 0;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: var(--text-color);
+    cursor: pointer;
+    padding: 0.5rem;
+    border-radius: 50%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    transition: background-color 0.2s, color 0.2s;
+}
+
+.mute-button:hover {
+    background-color: var(--border-color);
+    color: var(--accent-color);
+}
+
+.mute-button svg {
+    width: 24px;
+    height: 24px;
 }
 
 .title {
@@ -508,6 +537,18 @@ body {
 
 /* --- Mobile & Tablet Enhancements --- */
 @media (max-width: 600px) {
+    .header {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .mute-button {
+        position: static;
+        margin-top: 0.75rem;
+    }
+
     .title {
         font-size: 2rem;
     }
