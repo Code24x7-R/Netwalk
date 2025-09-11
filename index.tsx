@@ -113,7 +113,7 @@ const startBackgroundMusic = (audioCtx: AudioContext): { gainNode: GainNode; sto
     const D2 = 73.42, A2 = 110.00;
     const G2 = 98.00;
 
-    const bpm = 78;
+    const bpm = 90;
     const sixteenthNoteTime = (60 / bpm) / 4;
 
     // Sequence of notes: { freq, duration (in 16ths), velocity }
