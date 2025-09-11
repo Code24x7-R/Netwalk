@@ -39,36 +39,46 @@ const TILE_CONNECTIONS: Record<TileType, number[]> = {
 
 const TileIcon = ({ type, connected, isServer }: { type: TileType, connected: boolean, isServer: boolean }) => {
     const classNames = `wire ${connected ? 'connected' : ''}`;
-    
-    if (isServer) {
-        return <rect width="60" height="60" x="20" y="20" className="server" rx="5" />;
-    }
+    let baseWires = null;
 
     switch (type) {
         case TileType.TERMINAL:
-            return <>
+            baseWires = <>
                 <rect x="25" y="25" width="50" height="50" rx="5" className={`endpoint ${connected ? 'connected' : ''}`} />
                 <line x1="50" y1="25" x2="50" y2="0" className={classNames} />
             </>;
+            break;
         case TileType.STRAIGHT:
-            return <line x1="50" y1="0" x2="50" y2="100" className={classNames} />;
+            baseWires = <line x1="50" y1="0" x2="50" y2="100" className={classNames} />;
+            break;
         case TileType.CORNER:
-            return <>
+            baseWires = <>
                 <line x1="50" y1="0" x2="50" y2="50" className={classNames} />
                 <line x1="50" y1="50" x2="100" y2="50" className={classNames} />
             </>;
+            break;
         case TileType.T_JUNCTION:
-            return <>
+            baseWires = <>
                 <line x1="50" y1="0" x2="50" y2="100" className={classNames} />
                 <line x1="50" y1="50" x2="100" y2="50" className={classNames} />
             </>;
+            break;
         case TileType.CROSS:
-            return <>
+            baseWires = <>
                 <line x1="50" y1="0" x2="50" y2="100" className={classNames} />
                 <line x1="0" y1="50" x2="100" y2="50" className={classNames} />
             </>;
-        default: return null;
+            break;
     }
+
+    if (isServer) {
+        return <>
+            {baseWires}
+            <rect width="50" height="50" x="25" y="25" className="server" rx="5" />
+        </>;
+    }
+
+    return baseWires;
 };
 
 // --- AUDIO UTILITIES ---
@@ -83,7 +93,7 @@ const playConnectSound = (audioCtx: AudioContext, count: number) => {
     osc.type = 'square';
     osc.frequency.setValueAtTime(100 + count * 5, audioCtx.currentTime);
 
-    gainNode.gain.setValueAtTime(0.2, audioCtx.currentTime);
+    gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
     gainNode.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.2);
 
     osc.start(audioCtx.currentTime);
@@ -124,7 +134,7 @@ const playWinSound = (audioCtx: AudioContext) => {
     const noteDuration = 0.1;
     const totalDuration = notes.length * noteDuration;
 
-    gainNode.gain.setValueAtTime(0.2, now);
+    gainNode.gain.setValueAtTime(0.5, now);
     gainNode.gain.exponentialRampToValueAtTime(0.0001, now + totalDuration);
 
     notes.forEach((freq, i) => {
