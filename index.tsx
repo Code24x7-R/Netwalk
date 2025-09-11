@@ -576,17 +576,21 @@ const App = () => {
             gridSize: gridSize,
             isWrapping: isWrapping,
         };
-
-        const newLeaderboard = [...leaderboard, newScore]
-            .sort((a, b) => b.score - a.score)
-            .slice(0, 10);
-
-        setLeaderboard(newLeaderboard);
-        try {
-            localStorage.setItem('netwalkLeaderboard', JSON.stringify(newLeaderboard));
-        } catch (error) {
-            console.error("Failed to save leaderboard to localStorage:", error);
-        }
+        
+        setLeaderboard(prevLeaderboard => {
+            const newLeaderboard = [...prevLeaderboard, newScore]
+                .sort((a, b) => b.score - a.score)
+                .slice(0, 10);
+            
+            try {
+                localStorage.setItem('netwalkLeaderboard', JSON.stringify(newLeaderboard));
+            } catch (error) {
+                console.error("Failed to save leaderboard to localStorage:", error);
+            }
+            
+            return newLeaderboard;
+        });
+        
         setIsHighScore(false); // Hide the form after submission
     };
 
