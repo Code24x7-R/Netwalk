@@ -168,6 +168,25 @@ const playHintSound = (audioCtx: AudioContext) => {
     osc.stop(now + 0.4);
 };
 
+const playRotateSound = (audioCtx: AudioContext) => {
+    const osc = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+
+    osc.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+
+    osc.type = 'triangle';
+    const now = audioCtx.currentTime;
+    
+    gainNode.gain.setValueAtTime(0.2, now);
+    gainNode.gain.exponentialRampToValueAtTime(0.0001, now + 0.1);
+    
+    osc.frequency.setValueAtTime(150, now);
+
+    osc.start(now);
+    osc.stop(now + 0.1);
+};
+
 
 // --- GAME LOGIC UTILITIES ---
 
@@ -417,6 +436,10 @@ const App = () => {
         setScore(prev => prev - 10);
 
         const currentAudioContext = getAndResumeAudioContext();
+
+        if (currentAudioContext) {
+            playRotateSound(currentAudioContext);
+        }
 
         const previouslyConnectedCount = grid.flat().filter(t => t.connected).length;
 
