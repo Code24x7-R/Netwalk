@@ -4,6 +4,10 @@
 
 Netwalk is a puzzle game where players rotate network tiles to connect a central server to all terminal nodes on a grid. The goal is to establish a complete network connection across the entire board. This application is built as a modern web experience using React and Vite.
 
+## try it
+
+web <https://code24x7-r.github.io/Netwalk/>
+
 ## 2. Goals
 
 * **Engaging Puzzle Experience:** Provide a challenging and satisfying logic puzzle for users.
@@ -61,3 +65,4 @@ The game presents a grid of network tiles, one of which is a central server (fix
     This will create a `dist` directory with the optimized production build.
 
 ## 7. License
+
