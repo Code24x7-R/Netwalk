@@ -1,4 +1,5 @@
 
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 
@@ -546,11 +547,24 @@ const App = () => {
     const [isMuted, setIsMuted] = useState(true);
     const musicNodesRef = useRef<{ gainNode: GainNode; stop: () => void; } | null>(null);
     const [gamepadStatus, setGamepadStatus] = useState('No Controller Detected');
+    const [version, setVersion] = useState('');
 
     const [leaderboard, setLeaderboard] = useState<ScoreEntry[]>([]);
     const [showLeaderboard, setShowLeaderboard] = useState(false);
     const [isHighScore, setIsHighScore] = useState(false);
     const [playerInitials, setPlayerInitials] = useState("");
+
+    // Load version from metadata.json
+    useEffect(() => {
+        fetch('/metadata.json')
+            .then(response => response.json())
+            .then(data => {
+                if (data && data.version) {
+                    setVersion(`v${data.version}`);
+                }
+            })
+            .catch(error => console.error("Failed to load version info:", error));
+    }, []);
 
     // Load leaderboard from local storage on initial render
     useEffect(() => {
@@ -1053,6 +1067,7 @@ const App = () => {
                 <h1 className="title">Netwalk</h1>
                 <div className="score-display">Score: {score}</div>
                 <div className="gamepad-status">{gamepadStatus}</div>
+                {version && <div className="version-display">{version}</div>}
                  <button 
                     className="mute-button" 
                     onClick={handleMuteToggle}
