@@ -863,6 +863,80 @@ const App = () => {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [focusedTile, gridSize, isWrapping, rotateTile, isWon]);
 
+    const focusedTileRef = useRef(focusedTile);
+    useEffect(() => {
+        focusedTileRef.current = focusedTile;
+    }, [focusedTile]);
+
+    // Gamepad navigation
+    useEffect(() => {
+        if (isWon) return; // Stop handling input when game is won
+
+        const dpadState = { up: false, down: false, left: false, right: false, rotate: false };
+        let gameLoopId: number;
+
+        const gameLoop = () => {
+            // Find the first connected standard mapping gamepad.
+            const gamepad = Array.from(navigator.getGamepads()).find(p => p && p.mapping === 'standard');
+            
+            if (!gamepad) {
+                gameLoopId = requestAnimationFrame(gameLoop);
+                return;
+            }
+
+            const dpadUp = gamepad.buttons[12].pressed;
+            const dpadDown = gamepad.buttons[13].pressed;
+            const dpadLeft = gamepad.buttons[14].pressed;
+            const dpadRight = gamepad.buttons[15].pressed;
+            const rotateBtn = gamepad.buttons[0].pressed; // 'A' button
+
+            const currentFocusedTile = focusedTileRef.current;
+            if (currentFocusedTile) {
+                let moved = false;
+                let { r, c } = currentFocusedTile;
+
+                // Handle Movement on first press (rising edge)
+                if (dpadUp && !dpadState.up) {
+                    r = isWrapping ? (r - 1 + gridSize) % gridSize : Math.max(0, r - 1);
+                    moved = true;
+                } else if (dpadDown && !dpadState.down) {
+                    r = isWrapping ? (r + 1) % gridSize : Math.min(gridSize - 1, r + 1);
+                    moved = true;
+                } else if (dpadLeft && !dpadState.left) {
+                    c = isWrapping ? (c - 1 + gridSize) % gridSize : Math.max(0, c - 1);
+                    moved = true;
+                } else if (dpadRight && !dpadState.right) {
+                    c = isWrapping ? (c + 1) % gridSize : Math.min(gridSize - 1, c + 1);
+                    moved = true;
+                }
+
+                if (moved) {
+                    setFocusedTile({ r, c });
+                }
+
+                // Handle Rotation on first press (rising edge)
+                if (rotateBtn && !dpadState.rotate) {
+                    rotateTile(currentFocusedTile.r, currentFocusedTile.c);
+                }
+            }
+           
+            // Update state for next frame's rising edge detection
+            dpadState.up = dpadUp;
+            dpadState.down = dpadDown;
+            dpadState.left = dpadLeft;
+            dpadState.right = dpadRight;
+            dpadState.rotate = rotateBtn;
+
+            gameLoopId = requestAnimationFrame(gameLoop);
+        };
+        
+        gameLoopId = requestAnimationFrame(gameLoop);
+
+        return () => {
+            cancelAnimationFrame(gameLoopId);
+        };
+    }, [gridSize, isWrapping, isWon, rotateTile]);
+
 
     const handleHintClick = () => {
         if (isWon) return;

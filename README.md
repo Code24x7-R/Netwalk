@@ -4,10 +4,6 @@
 
 Netwalk is a puzzle game where players rotate network tiles to connect a central server to all terminal nodes on a grid. The goal is to establish a complete network connection across the entire board. This application is built as a modern web experience using React and Vite.
 
-## try it
-
-web <https://code24x7-r.github.io/Netwalk/>
-
 ## 2. Goals
 
 * **Engaging Puzzle Experience:** Provide a challenging and satisfying logic puzzle for users.
@@ -28,6 +24,7 @@ web <https://code24x7-r.github.io/Netwalk/>
 * **Audio Feedback:** Distinct sounds for connecting tiles and winning the game.
 * **Responsive Design:** Optimized for various screen sizes, including mobile and tablet.
 * **Keyboard Navigation:** Full keyboard support for navigating and rotating tiles.
+* **Gamepad Support:** Navigate the grid and rotate tiles using a standard gamepad (e.g., Xbox controller D-pad and 'A' button).
 
 ## 4. Technology Stack
 
@@ -43,7 +40,7 @@ web <https://code24x7-r.github.io/Netwalk/>
 The game presents a grid of network tiles, one of which is a central server (fixed) and several others are terminals. The player's objective is to rotate the non-server tiles until all terminals are connected to the server, forming a single, continuous network.
 
 * **Starting a Game:** Click "New Game" to generate a fresh puzzle.
-* **Rotating Tiles:** Click on any non-server tile or use arrow keys to navigate and Space/Enter to rotate the focused tile. Each click/key press rotates the tile 90 degrees clockwise.
+* **Rotating Tiles:** Click on any non-server tile to rotate it. Alternatively, use the arrow keys or a connected gamepad's D-pad to navigate, and press Space/Enter or the gamepad's 'A' button to rotate the focused tile. Each action rotates the tile 90 degrees clockwise.
 * **Connectivity:** Connected wires and endpoints will glow with an accent color.
 * **Winning:** The game is won when all terminal tiles are connected to the server. A "System Connected!" message will appear, and a celebratory animation will play.
 * **Hints:** The "Hint" button will correctly rotate one tile that is currently incorrect, prioritizing a tile that will extend the connected network.
@@ -65,4 +62,3 @@ The game presents a grid of network tiles, one of which is a central server (fix
     This will create a `dist` directory with the optimized production build.
 
 ## 7. License
-
