@@ -545,6 +545,7 @@ const App = () => {
     const startTimeRef = useRef<number>(0);
     const [isMuted, setIsMuted] = useState(true);
     const musicNodesRef = useRef<{ gainNode: GainNode; stop: () => void; } | null>(null);
+    const [gamepadStatus, setGamepadStatus] = useState('No Controller Detected');
 
     const [leaderboard, setLeaderboard] = useState<ScoreEntry[]>([]);
     const [showLeaderboard, setShowLeaderboard] = useState(false);
@@ -868,15 +869,46 @@ const App = () => {
         focusedTileRef.current = focusedTile;
     }, [focusedTile]);
 
-    // Gamepad navigation
+    // Gamepad status detection
     useEffect(() => {
-        if (isWon) return; // Stop handling input when game is won
+        const checkForGamepad = () => {
+            const gamepads = navigator.getGamepads();
+            const firstGamepad = Array.from(gamepads).find(p => p);
+            if (firstGamepad) {
+                setGamepadStatus(`Controller Connected: ${firstGamepad.id.split('(')[0].trim()}`);
+            } else {
+                setGamepadStatus('No Controller Detected');
+            }
+        };
 
-        const dpadState = { up: false, down: false, left: false, right: false, rotate: false };
+        const handleGamepadConnected = (e: GamepadEvent) => {
+            setGamepadStatus(`Controller Connected: ${e.gamepad.id.split('(')[0].trim()}`);
+        };
+
+        const handleGamepadDisconnected = () => {
+            checkForGamepad(); // Re-check if any others are connected
+        };
+    
+        // Initial check
+        checkForGamepad();
+    
+        window.addEventListener('gamepadconnected', handleGamepadConnected);
+        window.addEventListener('gamepaddisconnected', handleGamepadDisconnected);
+    
+        return () => {
+            window.removeEventListener('gamepadconnected', handleGamepadConnected);
+            window.removeEventListener('gamepaddisconnected', handleGamepadDisconnected);
+        };
+    }, []);
+
+    // Gamepad input handling
+    const dpadStateRef = useRef({ up: false, down: false, left: false, right: false, rotate: false });
+    useEffect(() => {
+        if (isWon) return;
+
         let gameLoopId: number;
 
         const gameLoop = () => {
-            // Find the first connected standard mapping gamepad.
             const gamepad = Array.from(navigator.getGamepads()).find(p => p && p.mapping === 'standard');
             
             if (!gamepad) {
@@ -890,7 +922,9 @@ const App = () => {
             const dpadRight = gamepad.buttons[15].pressed;
             const rotateBtn = gamepad.buttons[0].pressed; // 'A' button
 
+            const dpadState = dpadStateRef.current;
             const currentFocusedTile = focusedTileRef.current;
+
             if (currentFocusedTile) {
                 let moved = false;
                 let { r, c } = currentFocusedTile;
@@ -1018,6 +1052,7 @@ const App = () => {
             <header className="header">
                 <h1 className="title">Netwalk</h1>
                 <div className="score-display">Score: {score}</div>
+                <div className="gamepad-status">{gamepadStatus}</div>
                  <button 
                     className="mute-button" 
                     onClick={handleMuteToggle}
